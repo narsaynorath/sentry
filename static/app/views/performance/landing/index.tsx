@@ -18,7 +18,7 @@ import {Organization, Project} from 'app/types';
 import EventView from 'app/utils/discover/eventView';
 import {generateAggregateFields} from 'app/utils/discover/fields';
 import {OpBreakdownFilterProvider} from 'app/utils/performance/contexts/operationBreakdownFilter';
-import Teams from 'app/utils/teams';
+import useTeams from 'app/utils/useTeams';
 
 import Filter, {SpanOperationBreakdownFilter} from '../transactionSummary/filter';
 import {getTransactionSearchQuery} from '../utils';
@@ -64,6 +64,8 @@ function _PerformanceLanding(props: Props) {
     handleTrendsClick,
     shouldShowOnboarding,
   } = props;
+
+  const {teams, initiallyLoaded} = useTeams({provideUserTeams: true});
 
   const currentLandingDisplay = getCurrentLandingDisplay(location, projects, eventView);
   const filterString = getTransactionSearchQuery(location, eventView.query);
@@ -133,22 +135,18 @@ function _PerformanceLanding(props: Props) {
                 maxQueryLength={MAX_QUERY_LENGTH}
               />
             </SearchContainerWithFilter>
-            <Teams provideUserTeams>
-              {({teams, initiallyLoaded}) =>
-                initiallyLoaded ? (
-                  <TeamKeyTransactionManager.Provider
-                    organization={organization}
-                    teams={teams}
-                    selectedTeams={['myteams']}
-                    selectedProjects={eventView.project.map(String)}
-                  >
-                    <ViewComponent {...props} />
-                  </TeamKeyTransactionManager.Provider>
-                ) : (
-                  <LoadingIndicator />
-                )
-              }
-            </Teams>
+            {initiallyLoaded ? (
+              <TeamKeyTransactionManager.Provider
+                organization={organization}
+                teams={teams}
+                selectedTeams={['myteams']}
+                selectedProjects={eventView.project.map(String)}
+              >
+                <ViewComponent {...props} />
+              </TeamKeyTransactionManager.Provider>
+            ) : (
+              <LoadingIndicator />
+            )}
           </OpBreakdownFilterProvider>
         </Layout.Main>
       </Layout.Body>
