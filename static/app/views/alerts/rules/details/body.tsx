@@ -609,5 +609,5 @@ const CreatedBy = styled('div')`
 `;
 
 const StyledIconRectangle = styled(IconRectangle)`
-  margin-top: 4px;
+  margin-top: ${space(0.5)};
 `;
