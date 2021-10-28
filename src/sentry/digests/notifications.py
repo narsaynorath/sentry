@@ -4,18 +4,10 @@ import functools
 import itertools
 import logging
 from collections import OrderedDict, defaultdict, namedtuple
-from typing import (
-    Any,
-    Mapping,
-    MutableMapping,
-    MutableSequence,
-    Optional,
-    Sequence,
-    Tuple,
-)
+from typing import Any, Mapping, MutableMapping, Sequence
 
 from sentry.app import tsdb
-from sentry.digests import Record
+from sentry.digests import Digest, Record
 from sentry.eventstore.models import Event
 from sentry.models import Group, GroupStatus, Project, Rule
 from sentry.notifications.types import ActionTargetType
@@ -131,9 +123,7 @@ def rewrite_record(
     )
 
 
-def group_records(
-    groups: MutableMapping[str, Mapping[str, MutableSequence[Record]]], record: Record
-) -> Mapping[str, Mapping[str, Sequence[Record]]]:
+def group_records(groups: Digest, record: Record) -> Digest:
     group = record.value.event.group
     rules = record.value.rules
     if not rules:
@@ -145,9 +135,7 @@ def group_records(
     return groups
 
 
-def sort_group_contents(
-    rules: MutableMapping[str, Mapping["Group", Sequence[Record]]]
-) -> Mapping[str, Mapping["Group", Sequence[Record]]]:
+def sort_group_contents(rules: Digest) -> Digest:
     for key, groups in rules.items():
         rules[key] = OrderedDict(
             sorted(
@@ -160,7 +148,7 @@ def sort_group_contents(
     return rules
 
 
-def sort_rule_groups(rules: Mapping[str, Rule]) -> Mapping[str, Rule]:
+def sort_rule_groups(rules: Digest) -> Digest:
     return OrderedDict(
         sorted(
             rules.items(),
@@ -171,6 +159,12 @@ def sort_rule_groups(rules: Mapping[str, Rule]) -> Mapping[str, Rule]:
     )
 
 
+def check_group_state(record: Record) -> bool:
+    # Explicitly typing to satisfy mypy.
+    is_unresolved: bool = record.value.event.group.get_status() == GroupStatus.UNRESOLVED
+    return is_unresolved
+
+
 def build_digest(
     project: Project,
     records: Sequence[Record],
@@ -179,21 +173,12 @@ def build_digest(
     if not records:
         return None, []
 
-    # XXX: This is a hack to allow generating a mock digest without actually
-    # doing any real IO!
-    if state is None:
-        state = fetch_state(project, records)
-
-    state = attach_state(**state)
-
-    def check_group_state(record: Record) -> bool:
-        # Explicitly typing to satisfy mypy.
-        is_unresolved: bool = record.value.event.group.get_status() == GroupStatus.UNRESOLVED
-        return is_unresolved
+    # XXX(hack): Allow generating a mock digest without actually doing any real IO!
+    state = state or fetch_state(project, records)
 
     pipeline = (
         Pipeline()
-        .map(functools.partial(rewrite_record, **state))
+        .map(functools.partial(rewrite_record, **attach_state(**state)))
         .filter(bool)
         .filter(check_group_state)
         .reduce(group_records, lambda sequence: defaultdict(lambda: defaultdict(list)))
@@ -201,4 +186,5 @@ def build_digest(
         .apply(sort_rule_groups)
     )
 
-    return pipeline(records)
+    digest, logs = pipeline(records)
+    return digest, logs

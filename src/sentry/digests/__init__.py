@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import namedtuple
 from datetime import datetime
-from typing import TYPE_CHECKING, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, List, MutableMapping
 
 from django.conf import settings
 
@@ -24,14 +24,16 @@ backend.expose(locals())
 class Record(namedtuple("Record", "key value timestamp")):
     @property
     def datetime(self) -> datetime | None:
-        return to_datetime(self.timestamp)  # type: ignore
+        # Explicitly typing to satisfy mypy.
+        dt: datetime | None = to_datetime(self.timestamp)
+        return dt
 
 
 ScheduleEntry = namedtuple("ScheduleEntry", "key timestamp")
 
 OPTIONS = frozenset(("increment_delay", "maximum_delay", "minimum_delay"))
 
-Digest = Mapping["Rule", Mapping["Group", Sequence[Record]]]
+Digest = MutableMapping[Rule, MutableMapping[Group, List[Record]]]
 
 
 def get_option_key(plugin: str, option: str) -> str:
