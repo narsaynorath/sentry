@@ -123,6 +123,7 @@ class DropdownControl extends React.Component<Props> {
     return (
       <Content
         {...getMenuProps()}
+        data-test-id={`dropdown-content-${isOpen ? 'open' : 'close'}`}
         priority={priority}
         alignMenu={alignMenu}
         width={menuWidth}

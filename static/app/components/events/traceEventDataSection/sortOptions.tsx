@@ -41,6 +41,7 @@ function SortOptions({activeSortOption, onChange, disabled}: Props) {
           eventKey={value}
           isActive={value === currentValue}
           onSelect={(sortOption: SortOption) => onChange(sortOption)}
+          aria-label={t('Sort by option')}
         >
           {label}
         </DropdownItem>

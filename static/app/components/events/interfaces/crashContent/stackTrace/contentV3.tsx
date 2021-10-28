@@ -244,7 +244,11 @@ function StackTraceContent({
     return [...convertedFrames].reverse();
   }
 
-  return <StyledList className={getClassName()}>{renderConvertedFrames()}</StyledList>;
+  return (
+    <StyledList aria-label={t('Stack trace frames')} className={getClassName()}>
+      {renderConvertedFrames()}
+    </StyledList>
+  );
 }
 
 export default StackTraceContent;
