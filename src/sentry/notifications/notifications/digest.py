@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Mapping, MutableMapping, Optional, Tuple, Union
+from collections import defaultdict
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, MutableMapping
 
 from sentry.digests import Digest
-from sentry.digests.utilities import (
-    get_digest_metadata,
+from sentry.digests.utils import (
+    get_digest_as_context,
+    get_event_from_groups_in_digest, get_first_event,
     get_personalized_digests,
     should_get_personalized_digests,
 )
@@ -29,10 +33,10 @@ logger = logging.getLogger(__name__)
 class DigestNotification(ProjectNotification):
     def __init__(
         self,
-        project: "Project",
+        project: Project,
         digest: Digest,
         target_type: ActionTargetType,
-        target_identifier: Optional[int] = None,
+        target_identifier: int | None = None,
     ) -> None:
         super().__init__(project)
         self.digest = digest
@@ -62,10 +66,10 @@ class DigestNotification(ProjectNotification):
     def get_type(self) -> str:
         return "notify.digest"
 
-    def get_unsubscribe_key(self) -> Optional[Tuple[str, int, Optional[str]]]:
+    def get_unsubscribe_key(self) -> tuple[str, int, str | None] | None:
         return "project", self.project.id, "alert_digest"
 
-    def get_subject(self, context: Optional[Mapping[str, Any]] = None) -> str:
+    def get_subject(self, context: Mapping[str, Any] | None = None) -> str:
         if not context:
             # This shouldn't be possible but adding a message just in case.
             return "Digest Report"

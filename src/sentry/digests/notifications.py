@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import functools
 import itertools
 import logging
@@ -25,7 +27,7 @@ logger = logging.getLogger("sentry.digests")
 Notification = namedtuple("Notification", "event rules")
 
 
-def split_key(key: str) -> Tuple["Project", "ActionTargetType", Optional[str]]:
+def split_key(key: str) -> tuple[Project, ActionTargetType, str | None]:
     key_parts = key.split(":", 4)
     project_id = key_parts[2]
     # XXX: We transitioned to new style keys (len == 5) a while ago on sentry.io. But
@@ -41,7 +43,7 @@ def split_key(key: str) -> Tuple["Project", "ActionTargetType", Optional[str]]:
 
 
 def unsplit_key(
-    project: "Project", target_type: ActionTargetType, target_identifier: Optional[str]
+    project: Project, target_type: ActionTargetType, target_identifier: str | None
 ) -> str:
     return "mail:p:{}:{}:{}".format(
         project.id, target_type.value, target_identifier if target_identifier is not None else ""
@@ -59,7 +61,7 @@ def event_to_record(event: Event, rules: Sequence[Rule]) -> Record:
     )
 
 
-def fetch_state(project: "Project", records: Sequence[Record]) -> Mapping[str, Any]:
+def fetch_state(project: Project, records: Sequence[Record]) -> Mapping[str, Any]:
     # This reads a little strange, but remember that records are returned in
     # reverse chronological order, and we query the database in chronological
     # order.
@@ -82,8 +84,8 @@ def fetch_state(project: "Project", records: Sequence[Record]) -> Mapping[str, A
 
 
 def attach_state(
-    project: "Project",
-    groups: MutableMapping[int, "Group"],
+    project: Project,
+    groups: MutableMapping[int, Group],
     rules: Mapping[int, Rule],
     event_counts: Mapping[int, int],
     user_counts: Mapping[int, int],
@@ -109,10 +111,10 @@ def attach_state(
 
 def rewrite_record(
     record: Record,
-    project: "Project",
-    groups: Mapping[int, "Group"],
+    project: Project,
+    groups: Mapping[int, Group],
     rules: Mapping[str, Rule],
-) -> Optional[Record]:
+) -> Record | None:
     event = record.value.event
 
     # Reattach the group to the event.
@@ -171,11 +173,10 @@ def sort_rule_groups(rules: Mapping[str, Rule]) -> Mapping[str, Rule]:
 
 
 def build_digest(
-    project: "Project",
+    project: Project,
     records: Sequence[Record],
-    state: Optional[Mapping[str, Any]] = None,
-) -> Tuple[Optional[Any], Sequence[str]]:
-    records = list(records)
+    state: Mapping[str, Any] | None = None,
+) -> tuple[Digest | None, Sequence[str]]:
     if not records:
         return None, []
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections import namedtuple
 from datetime import datetime
 from typing import TYPE_CHECKING, Mapping, Optional, Sequence
@@ -21,7 +23,7 @@ backend.expose(locals())
 
 class Record(namedtuple("Record", "key value timestamp")):
     @property
-    def datetime(self) -> Optional[datetime]:
+    def datetime(self) -> datetime | None:
         return to_datetime(self.timestamp)  # type: ignore
 
 
