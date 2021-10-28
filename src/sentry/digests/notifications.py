@@ -2,10 +2,8 @@ import functools
 import itertools
 import logging
 from collections import OrderedDict, defaultdict, namedtuple
-from functools import reduce
 from typing import (
     Any,
-    Callable,
     Mapping,
     MutableMapping,
     MutableSequence,
@@ -20,6 +18,7 @@ from sentry.eventstore.models import Event
 from sentry.models import Group, GroupStatus, Project, Rule
 from sentry.notifications.types import ActionTargetType
 from sentry.utils.dates import to_timestamp
+from sentry.utils.pipeline import Pipeline
 
 logger = logging.getLogger("sentry.digests")
 
@@ -106,59 +105,6 @@ def attach_state(
         groups[id].user_count = user_count
 
     return {"project": project, "groups": groups, "rules": rules}
-
-
-class Pipeline:
-    def __init__(self) -> None:
-        self.operations: MutableSequence[Callable[..., Any]] = []
-        self.logs: MutableSequence[str] = []
-
-    def __call__(self, sequence: Sequence[Any]) -> Tuple[Any, Sequence[str]]:
-        # Explicitly typing to satisfy mypy.
-        func: Callable[[Any, Callable[[Any], Any]], Any] = lambda x, operation: operation(x)
-        return reduce(func, self.operations, sequence), self.logs
-
-    def _log(self, message: str) -> None:
-        logger.debug(message)
-        self.logs.append(message)
-
-    def apply(self, function: Callable[[MutableMapping[str, Any]], Any]) -> "Pipeline":
-        def operation(sequence: MutableMapping[str, Any]) -> Any:
-            result = function(sequence)
-            self._log(f"{function!r} applied to {len(sequence)} items.")
-            return result
-
-        self.operations.append(operation)
-        return self
-
-    def filter(self, function: Callable[[Record], bool]) -> "Pipeline":
-        def operation(sequence: Sequence[Any]) -> Sequence[Any]:
-            result = [s for s in sequence if function(s)]
-            self._log(f"{function!r} filtered {len(sequence)} items to {len(result)}.")
-            return result
-
-        self.operations.append(operation)
-        return self
-
-    def map(self, function: Callable[[Sequence[Any]], Any]) -> "Pipeline":
-        def operation(sequence: Sequence[Any]) -> Sequence[Any]:
-            result = [function(s) for s in sequence]
-            self._log(f"{function!r} applied to {len(sequence)} items.")
-            return result
-
-        self.operations.append(operation)
-        return self
-
-    def reduce(
-        self, function: Callable[[Any, Any], Any], initializer: Callable[[Sequence[Any]], Any]
-    ) -> "Pipeline":
-        def operation(sequence: Sequence[Any]) -> Any:
-            result = reduce(function, sequence, initializer(sequence))
-            self._log(f"{function!r} reduced {len(sequence)} items to {len(result)}.")
-            return result
-
-        self.operations.append(operation)
-        return self
 
 
 def rewrite_record(
