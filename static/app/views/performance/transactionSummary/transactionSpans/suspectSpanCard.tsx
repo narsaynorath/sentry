@@ -1,9 +1,13 @@
 import {ReactNode} from 'react';
+import {useTheme} from '@emotion/react';
+import styled from '@emotion/styled';
 import {Location, LocationDescriptor, Query} from 'history';
 
 import GridEditable, {COL_WIDTH_UNDEFINED} from 'app/components/gridEditable';
 import SortLink from 'app/components/gridEditable/sortLink';
 import Link from 'app/components/links/link';
+import {RowRectangle} from 'app/components/performance/waterfall/rowBar';
+import {pickBarColor, toPercent} from 'app/components/performance/waterfall/utils';
 import Tooltip from 'app/components/tooltip';
 import {t, tct} from 'app/locale';
 import {Organization} from 'app/types';
@@ -99,6 +103,7 @@ export default function SuspectSpanEntry(props: Props) {
     project: suspectSpan.project,
     // finish timestamp is in seconds but want milliseconds
     timestamp: example.finishTimestamp * 1000,
+    transactionDuration: (example.finishTimestamp - example.startTimestamp) * 1000,
     spanDuration: example.nonOverlappingExclusiveTime,
     repeated: example.spans.length,
     cumulativeDuration: example.spans.reduce(
@@ -142,7 +147,8 @@ export default function SuspectSpanEntry(props: Props) {
             renderBodyCell: renderBodyCellWithMeta(
               location,
               organization,
-              generateTransactionLink
+              generateTransactionLink,
+              suspectSpan
             ),
           }}
           location={location}
@@ -232,9 +238,20 @@ function renderBodyCellWithMeta(
     tableData: TableDataRow,
     query: Query,
     hash?: string
-  ) => LocationDescriptor
+  ) => LocationDescriptor,
+  suspectSpan: SuspectSpan
 ) {
   return (column: SuspectSpanTableColumn, dataRow: SuspectSpanDataRow): ReactNode => {
+    if (column.key === 'spanDuration' && dataRow.transactionDuration) {
+      return (
+        <SuspectSpanNonOverlappingDuration
+          span={suspectSpan}
+          transactionDuration={dataRow.transactionDuration}
+          spanDuration={dataRow.spanDuration}
+        />
+      );
+    }
+
     const fieldRenderer = getFieldRenderer(column.key, SPANS_TABLE_COLUMN_TYPE);
     let rendered = fieldRenderer(dataRow, {location, organization});
 
@@ -252,6 +269,66 @@ function renderBodyCellWithMeta(
 
     return rendered;
   };
+}
+
+const DurationBar = styled('div')`
+  position: relative;
+  display: flex;
+`;
+
+const DurationBarSection = styled(RowRectangle)`
+  position: relative;
+  width: 100%;
+`;
+
+type SuspectSpanNonOverlappingDurationProps = {
+  span: SuspectSpan;
+  transactionDuration: number;
+  spanDuration: number;
+};
+
+function SuspectSpanNonOverlappingDuration(
+  props: SuspectSpanNonOverlappingDurationProps
+) {
+  const {span, transactionDuration, spanDuration} = props;
+
+  if (transactionDuration === 0) {
+    // TODO: fallback
+    return null;
+  }
+
+  const theme = useTheme();
+
+  const widthPercentage = spanDuration / transactionDuration;
+
+  return (
+    <DurationBar>
+      <div style={{width: toPercent(widthPercentage)}}>
+        <Tooltip
+          title={tct('[spanDuration] of [transactionDuration]', {
+            spanDuration: (
+              <PerformanceDuration abbreviation milliseconds={spanDuration} />
+            ),
+            transactionDuration: (
+              <PerformanceDuration abbreviation milliseconds={transactionDuration} />
+            ),
+          })}
+          containerDisplayMode="block"
+        >
+          <DurationBarSection
+            spanBarHatch={false}
+            style={{backgroundColor: pickBarColor(span.op)}}
+          />
+        </Tooltip>
+      </div>
+      <div style={{width: toPercent(1 - widthPercentage)}}>
+        <DurationBarSection
+          spanBarHatch={false}
+          style={{backgroundColor: theme.gray100}}
+        />
+      </div>
+    </DurationBar>
+  );
 }
 
 type SpanLabelProps = {
