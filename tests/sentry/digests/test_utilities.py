@@ -1,19 +1,20 @@
+from __future__ import annotations
+
+from typing import Iterable, Mapping, Sequence
+
+from sentry.digests import Digest, Record
 from sentry.digests.notifications import build_digest, event_to_record
-from sentry.digests.utilities import (
-    build_events_by_actor,
-    convert_actors_to_users,
-    get_event_from_groups_in_digest,
-    get_personalized_digests,
-    team_actors_to_user_ids,
-)
-from sentry.models import ActorTuple, OrganizationMemberTeam, ProjectOwnership, Team, User
-from sentry.notifications.types import ActionTargetType
+from sentry.digests.utils import get_event_from_groups_in_digest, get_personalized_digests
+from sentry.eventstore.models import Event
+from sentry.models import ActorTuple, OrganizationMemberTeam, Project, ProjectOwnership, Team, User
 from sentry.ownership.grammar import Matcher, Owner, Rule, dump_schema
 from sentry.testutils import SnubaTestCase, TestCase
 from sentry.testutils.helpers.datetime import before_now, iso_format
 
+# TODO MARCOS don't delete the tests yet, we'll want to use their set ups in our new tests.
 
-def sort_records(records):
+
+def sort_records(records: Sequence[Record]) -> Sequence[Record]:
     """
     Sorts records for fetch_state method
     fetch_state is expecting these records to be ordered from newest to oldest
@@ -131,6 +132,7 @@ class UtilitiesHelpersTestCase(TestCase, SnubaTestCase):
             self.create_event(self.project.id),
         }
         user4_events = {self.create_event(self.project.id), self.create_event(self.project.id)}
+        # TODO MARCOS
         events_by_actor = {
             ActorTuple(team1.id, Team): team1_events,
             ActorTuple(team2.id, Team): team2_events,
@@ -218,25 +220,32 @@ class GetPersonalizedDigestsTestCase(TestCase, SnubaTestCase):
             fallthrough=True,
         )
 
-    def create_events_from_filenames(self, project, filenames=None):
-        events = []
-        for index, label in enumerate(filenames):
-            event_data = {
-                "stacktrace": {"frames": [{"filename": label}]},
-                "fingerprint": [label],
-                "timestamp": iso_format(before_now(minutes=1)),
-            }
-            event = self.store_event(data=event_data, project_id=project.id, assert_no_errors=False)
-            events.append(event)
-        return events
+    def create_events_from_filenames(
+        self, project: Project, filenames: Sequence[str] | None = None
+    ) -> list[Event]:
+        return [
+            self.store_event(
+                data={
+                    "stacktrace": {"frames": [{"filename": label}]},
+                    "fingerprint": [label],
+                    "timestamp": iso_format(before_now(minutes=1)),
+                },
+                project_id=project.id,
+                assert_no_errors=False,
+            )
+            for index, label in enumerate(filenames or [])
+        ]
 
     def assert_get_personalized_digests(
-        self, project, digest, user_ids, expected_result, target_type=ActionTargetType.ISSUE_OWNERS
+        self,
+        project: Project,
+        digest: Digest,
+        user_ids: Sequence[int],
+        expected_result: Mapping[int, Iterable[Event]],
     ):
         result_user_ids = []
-        for user_id, user_digest in get_personalized_digests(
-            target_type, project.id, digest, user_ids
-        ):
+        personalized_digests = get_personalized_digests(project, digest, user_ids)
+        for user_id, user_digest in personalized_digests.items():
             assert user_id in expected_result
             assert {e.event_id for e in get_event_from_groups_in_digest(user_digest)} == {
                 e.event_id for e in expected_result[user_id]
@@ -254,7 +263,7 @@ class GetPersonalizedDigestsTestCase(TestCase, SnubaTestCase):
             ActorTuple(self.user3.id, User): set(self.team1_events),
             ActorTuple(self.user4.id, User): set(self.user4_events),
         }
-        assert build_events_by_actor(self.project.id, events, self.user_ids) == events_by_actor
+        assert build_events_by_actor(self.project, events) == events_by_actor
 
     def test_simple(self):
         rule = self.project.rule_set.all()[0]
@@ -279,9 +288,7 @@ class GetPersonalizedDigestsTestCase(TestCase, SnubaTestCase):
         digest = build_digest(self.project, sort_records(records))[0]
 
         expected_result = {self.user1.id: set(self.team1_events)}
-        self.assert_get_personalized_digests(
-            self.project, digest, [self.user1.id], expected_result, ActionTargetType.MEMBER
-        )
+        self.assert_get_personalized_digests(self.project, digest, [self.user1.id], expected_result)
 
     def test_team_without_members(self):
         team = self.create_team()
@@ -301,10 +308,8 @@ class GetPersonalizedDigestsTestCase(TestCase, SnubaTestCase):
         digest = build_digest(project, sort_records(records))[0]
         user_ids = [member.user_id for member in team.member_set]
         assert not user_ids
-        for user_id, user_digest in get_personalized_digests(
-            ActionTargetType.ISSUE_OWNERS, project.id, digest, user_ids
-        ):
-            assert False  # no users in this team no digests should be processed
+        personalized_digests = get_personalized_digests(project, digest, user_ids)
+        assert not personalized_digests  # no users in this team no digests should be processed
 
     def test_only_everyone(self):
         rule = self.project.rule_set.all()[0]

@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Iterable, Mapping, MutableMapping
+from typing import TYPE_CHECKING, Any, Mapping, MutableMapping
 
 from sentry.digests import Digest
 from sentry.digests.utils import (
     get_digest_as_context,
-    get_event_from_groups_in_digest, get_first_event,
+    get_event_from_groups_in_digest,
     get_personalized_digests,
     should_get_personalized_digests,
 )
+from sentry.eventstore.models import Event
 from sentry.notifications.notifications.base import ProjectNotification
 from sentry.notifications.notify import notify
 from sentry.notifications.types import ActionTargetType
@@ -43,19 +44,18 @@ class DigestNotification(ProjectNotification):
         self.target_type = target_type
         self.target_identifier = target_identifier
 
-    def get_participants(self) -> Mapping[ExternalProviders, Iterable[Union["Team", "User"]]]:
-        event = [
-            record
-            for records_by_group in self.digest.values()
-            for records in records_by_group.values()
-            for record in records
-        ][0].value.event
-        return get_send_to(
-            project=self.project,
-            target_type=self.target_type,
-            target_identifier=self.target_identifier,
-            event=event,
-        )
+    def get_participants_by_event(
+        self,
+    ) -> Mapping[Event, Mapping[ExternalProviders, set[Team | User]]]:
+        return {
+            event: get_send_to(
+                project=self.project,
+                target_type=self.target_type,
+                target_identifier=self.target_identifier,
+                event=event,
+            )
+            for event in get_event_from_groups_in_digest(self.digest)
+        }
 
     def get_filename(self) -> str:
         return "digests/body"
@@ -83,40 +83,28 @@ class DigestNotification(ProjectNotification):
         return self.project
 
     def get_context(self) -> MutableMapping[str, Any]:
-        start, end, counts = get_digest_metadata(self.digest)
-        group = next(iter(counts))
         return {
-            "counts": counts,
-            "digest": self.digest,
-            "end": end,
-            "group": group,
+            **get_digest_as_context(self.digest),
             "has_alert_integration": has_alert_integration(self.project),
             "project": self.project,
             "slack_link": get_integration_link(self.organization, "slack"),
-            "start": start,
         }
 
-    def get_extra_context(self, recipient_ids: Iterable[int]) -> Mapping[int, Mapping[str, Any]]:
-        extra_context = {}
-        for user_id, digest in get_personalized_digests(
-            self.target_type, self.project.id, self.digest, recipient_ids
-        ):
-            start, end, counts = get_digest_metadata(digest)
-            group = next(iter(counts))
-
-            extra_context[user_id] = {
-                "counts": counts,
-                "digest": digest,
-                "group": group,
-                "end": end,
-                "start": start,
-            }
-
-        return extra_context
+    def get_extra_context(
+        self,
+        participants_by_provider_by_event: Mapping[
+            Event, Mapping[ExternalProviders, set[Team | User]]
+        ],
+    ) -> Mapping[int, Mapping[str, Any]]:
+        personalized_digests = get_personalized_digests(
+            self.digest, participants_by_provider_by_event
+        )
+        return {
+            actor_id: get_digest_as_context(digest)
+            for actor_id, digest in personalized_digests.items()
+        }
 
     def send(self) -> None:
-        from sentry.models import User
-
         if not self.should_email():
             return
 
@@ -128,17 +116,19 @@ class DigestNotification(ProjectNotification):
                 shared_context, self.target_type, self.target_identifier
             )
 
-        participants_by_provider = self.get_participants()
-        if not participants_by_provider:
-            return
+        participants_by_provider_by_event = self.get_participants_by_event()
 
         # Get every user ID for every provider as a set.
-        user_ids = {
-            participant.id
-            for participants in participants_by_provider.values()
-            for participant in participants
-            if isinstance(participant, User)
-        }
+        actor_ids = set()
+        combined_participants_by_provider = defaultdict(set)
+        for participants_by_provider in participants_by_provider_by_event.values():
+            for provider, participants in participants_by_provider:
+                for participant in participants:
+                    actor_ids.add(participant.actor_id)
+                    combined_participants_by_provider[provider].add(participant)
+
+        if not actor_ids:
+            return
 
         logger.info(
             "mail.adapter.notify_digest",
@@ -146,16 +136,14 @@ class DigestNotification(ProjectNotification):
                 "project_id": self.project.id,
                 "target_type": self.target_type.value,
                 "target_identifier": self.target_identifier,
-                "user_ids": user_ids,
+                "actor_ids": actor_ids,
             },
         )
 
-        # Calculate the per-user context. It's fine that we're doing extra work
-        # to get personalized digests for the non-email users.
+        # Calculate the per-participant context.
         extra_context: Mapping[int, Mapping[str, Any]] = {}
         if should_get_personalized_digests(self.target_type, self.project.id):
-            extra_context = self.get_extra_context(user_ids)
+            extra_context = self.get_extra_context(participants_by_provider_by_event)
 
-        for provider, participants in participants_by_provider.items():
-            if provider in [ExternalProviders.EMAIL]:
-                notify(provider, self, participants, shared_context, extra_context)
+        for provider, participants in combined_participants_by_provider.items():
+            notify(provider, self, participants, shared_context, extra_context)

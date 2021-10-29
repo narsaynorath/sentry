@@ -238,7 +238,7 @@ def get_send_to(
     target_type: ActionTargetType,
     target_identifier: int | None = None,
     event: Event | None = None,
-) -> Mapping[ExternalProviders, Iterable[Team | User]]:
+) -> Mapping[ExternalProviders, set[Team | User]]:
     recipients = determine_eligible_recipients(project, target_type, target_identifier, event)
     return get_recipients_by_provider(project, recipients)
 
@@ -300,9 +300,9 @@ def get_users_from_team_fall_back(
 
 
 def combine_recipients_by_provider(
-    teams_by_provider: Mapping[ExternalProviders, Iterable[Team | User]],
-    users_by_provider: Mapping[ExternalProviders, Iterable[Team | User]],
-) -> Mapping[ExternalProviders, Iterable[Team | User]]:
+    teams_by_provider: Mapping[ExternalProviders, set[Team | User]],
+    users_by_provider: Mapping[ExternalProviders, set[Team | User]],
+) -> Mapping[ExternalProviders, set[Team | User]]:
     """TODO(mgaeta): Make this more generic and move it to utils."""
     recipients_by_provider = defaultdict(set)
     for provider, teams in teams_by_provider.items():
@@ -316,7 +316,7 @@ def combine_recipients_by_provider(
 
 def get_recipients_by_provider(
     project: Project, recipients: Iterable[Team | User]
-) -> Mapping[ExternalProviders, Iterable[Team | User]]:
+) -> Mapping[ExternalProviders, set[Team | User]]:
     """Get the lists of recipients that should receive an Issue Alert by ExternalProvider."""
     teams, users = partition_recipients(recipients)
 
