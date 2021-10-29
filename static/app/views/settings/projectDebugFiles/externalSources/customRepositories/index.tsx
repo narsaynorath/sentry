@@ -157,7 +157,6 @@ function CustomRepositories({
       query: {
         ...location.query,
         customRepository: undefined,
-        revalidateItunesSession: undefined,
       },
     });
   }
@@ -180,16 +179,12 @@ function CustomRepositories({
     });
   }
 
-  function handleEditRepository(
-    repoId: CustomRepo['id'],
-    revalidateItunesSession?: boolean
-  ) {
+  function handleEditRepository(repoId: CustomRepo['id']) {
     router.push({
       ...location,
       query: {
         ...location.query,
         customRepository: repoId,
-        revalidateItunesSession,
       },
     });
   }
